@@ -2,10 +2,8 @@ import os
 import cv2
 import tempfile
 from flask import Flask, request, render_template_string, send_file
-from ultralytics import YOLO
 
 app = Flask(__name__)
-model = YOLO("yolov8n.pt")
 
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -50,60 +48,66 @@ def index():
     if request.method == "POST":
         file = request.files.get("video")
         if file:
-            in_path = os.path.join(PROCESSED_FOLDER, "input.mp4")
-            out_name = "processed_traffic.mp4"
-            out_path = os.path.join(PROCESSED_FOLDER, out_name)
-            file.save(in_path)
+            try:
+                from ultralytics import YOLO
+                model = YOLO("yolov8n.pt")
 
-            cap = cv2.VideoCapture(in_path)
-            fps = int(cap.get(cv2.CAP_PROP_FPS)) or 20
-            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 640
-            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 360
+                in_path = os.path.join(PROCESSED_FOLDER, "input.mp4")
+                out_name = "processed_traffic.mp4"
+                out_path = os.path.join(PROCESSED_FOLDER, out_name)
+                file.save(in_path)
 
-            fourcc = cv2.VideoWriter_fourcc(*'avc1')
-            out = cv2.VideoWriter(out_path, fourcc, fps, (width, height))
+                cap = cv2.VideoCapture(in_path)
+                fps = int(cap.get(cv2.CAP_PROP_FPS)) or 20
+                width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 640
+                height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 360
 
-            vehicle_count = 0
-            emergency_detected = False
+                fourcc = cv2.VideoWriter_fourcc(*'avc1')
+                out = cv2.VideoWriter(out_path, fourcc, fps, (width, height))
 
-            while cap.isOpened():
-                ret, frame = cap.read()
-                if not ret:
-                    break
+                vehicle_count = 0
+                emergency_detected = False
 
-                results = model(frame, verbose=False)
-                boxes = results[0].boxes
-                curr = 0
-                for box in boxes:
-                    cls = int(box.cls[0])
-                    if cls in [2, 3, 5, 7]:
-                        curr += 1
-                    if cls == 7:
-                        emergency_detected = True
+                while cap.isOpened():
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
 
-                if curr > vehicle_count:
-                    vehicle_count = curr
+                    results = model(frame, verbose=False)
+                    boxes = results[0].boxes
+                    curr = 0
+                    for box in boxes:
+                        cls = int(box.cls[0])
+                        if cls in [2, 3, 5, 7]:
+                            curr += 1
+                        if cls == 7:
+                            emergency_detected = True
 
-                annotated = results[0].plot()
-                out.write(annotated)
+                    if curr > vehicle_count:
+                        vehicle_count = curr
 
-            cap.release()
-            out.release()
+                    annotated = results[0].plot()
+                    out.write(annotated)
 
-            if emergency_detected:
-                status = "🟢 GREEN OVERRIDE: Emergency Vehicle Detected!"
-                color = "#28a745"
-                timer = 60
-            elif vehicle_count > 4:
-                status = f"🟢 HIGH DENSITY: {vehicle_count} Vehicles Detected"
-                color = "#28a745"
-                timer = min(20 + (vehicle_count * 3), 60)
-            else:
-                status = "🔴 RED: Standard Traffic"
-                color = "#dc3545"
-                timer = 15
+                cap.release()
+                out.release()
 
-            return render_template_string(HTML_TEMPLATE, status=status, color=color, timer=timer, video_name=out_name)
+                if emergency_detected:
+                    status = "🟢 GREEN OVERRIDE: Emergency Vehicle Detected!"
+                    color = "#28a745"
+                    timer = 60
+                elif vehicle_count > 4:
+                    status = f"🟢 HIGH DENSITY: {vehicle_count} Vehicles Detected"
+                    color = "#28a745"
+                    timer = min(20 + (vehicle_count * 3), 60)
+                else:
+                    status = "🔴 RED: Standard Traffic"
+                    color = "#dc3545"
+                    timer = 15
+
+                return render_template_string(HTML_TEMPLATE, status=status, color=color, timer=timer, video_name=out_name)
+            except Exception as e:
+                return f"Error processing video: {str(e)}", 500
 
     return render_template_string(HTML_TEMPLATE, status=None)
 
@@ -112,4 +116,4 @@ def get_video(filename):
     return send_file(os.path.join(PROCESSED_FOLDER, filename), mimetype="video/mp4")
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=10000)
